@@ -2,9 +2,15 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:material_ui/material_ui.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-void main() {
-  runApp(const MyApp());
+import 'data/supabase_app_config.dart';
+import 'data/supabase_task_repository.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final supabase = await SupabaseAppConfig.initializeIfConfigured();
+  runApp(MyApp(supabase: supabase));
 }
 
 class AppColors {
@@ -52,7 +58,9 @@ String createRecordId() {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.supabase});
+
+  final SupabaseClient? supabase;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +75,194 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const TaskManagerHome(),
+      home: supabase == null
+          ? const TaskManagerHome()
+          : SupabaseAuthGate(supabase: supabase!),
+    );
+  }
+}
+
+class SupabaseAuthGate extends StatefulWidget {
+  const SupabaseAuthGate({super.key, required this.supabase});
+
+  final SupabaseClient supabase;
+
+  @override
+  State<SupabaseAuthGate> createState() => _SupabaseAuthGateState();
+}
+
+class _SupabaseAuthGateState extends State<SupabaseAuthGate> {
+  late bool _signedIn = widget.supabase.auth.currentSession != null;
+  late final StreamSubscription<AuthState> _authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSubscription = widget.supabase.auth.onAuthStateChange.listen((state) {
+      if (mounted) setState(() => _signedIn = state.session != null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_signedIn) {
+      return TaskManagerHome(
+        repository: SupabaseTaskRepository(widget.supabase),
+      );
+    }
+    return SupabaseSignInPage(supabase: widget.supabase);
+  }
+}
+
+class SupabaseSignInPage extends StatefulWidget {
+  const SupabaseSignInPage({super.key, required this.supabase});
+
+  final SupabaseClient supabase;
+
+  @override
+  State<SupabaseSignInPage> createState() => _SupabaseSignInPageState();
+}
+
+class _SupabaseSignInPageState extends State<SupabaseSignInPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isCreatingAccount = false;
+  bool _isBusy = false;
+  String? _message;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _message = 'Enter your email and password.');
+      return;
+    }
+
+    setState(() {
+      _isBusy = true;
+      _message = null;
+    });
+    try {
+      if (_isCreatingAccount) {
+        final response = await widget.supabase.auth.signUp(
+          email: email,
+          password: password,
+        );
+        if (response.session == null && mounted) {
+          setState(
+            () =>
+                _message = 'Check your email to finish creating your account.',
+          );
+        }
+      } else {
+        await widget.supabase.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+      }
+    } catch (error) {
+      if (mounted) setState(() => _message = error.toString());
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Card(
+            color: AppColors.sidebar,
+            margin: const EdgeInsets.all(24),
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'UNTITLEDTASKMANAGER',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    _isCreatingAccount
+                        ? 'Create your account'
+                        : 'Sign in to sync',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                  const SizedBox(height: 18),
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [AutofillHints.username],
+                    decoration: const InputDecoration(labelText: 'Email'),
+                  ),
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    autofillHints: const [AutofillHints.password],
+                    decoration: const InputDecoration(labelText: 'Password'),
+                    onSubmitted: (_) => _isBusy ? null : _submit(),
+                  ),
+                  if (_message != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _message!,
+                      style: const TextStyle(color: AppColors.urgent),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  FilledButton(
+                    onPressed: _isBusy ? null : _submit,
+                    child: Text(
+                      _isBusy
+                          ? 'Please wait…'
+                          : _isCreatingAccount
+                          ? 'Create account'
+                          : 'Sign in',
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _isBusy
+                        ? null
+                        : () => setState(() {
+                            _isCreatingAccount = !_isCreatingAccount;
+                            _message = null;
+                          }),
+                    child: Text(
+                      _isCreatingAccount
+                          ? 'I already have an account'
+                          : 'Create a new account',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -98,9 +293,29 @@ class TaskItem {
 
   bool get isRunning => startedAt != null;
 
+  factory TaskItem.fromRow(Map<String, dynamic> row) {
+    final startedAtValue = row['timer_started_at'] as String?;
+    final completedAtValue = row['completed_at'] as String?;
+    return TaskItem(
+        id: row['id'] as String,
+        listId: row['list_id'] as String,
+        title: row['title'] as String,
+        priority: (row['priority'] as num).toInt(),
+        order: (row['sort_order'] as num).toInt(),
+      )
+      ..accumulatedTime = Duration(
+        seconds: (row['elapsed_seconds'] as num).toInt(),
+      )
+      ..startedAt = startedAtValue == null
+          ? null
+          : DateTime.parse(startedAtValue).toUtc()
+      ..isCompleted = completedAtValue != null;
+  }
+
   Duration elapsedAt(DateTime now) {
-    final currentRun =
-        startedAt == null ? Duration.zero : now.difference(startedAt!);
+    final currentRun = startedAt == null
+        ? Duration.zero
+        : now.difference(startedAt!);
     return accumulatedTime + currentRun;
   }
 }
@@ -115,6 +330,12 @@ class TaskListInfo {
   final String id;
   final String name;
   final String iconKey;
+
+  factory TaskListInfo.fromRow(Map<String, dynamic> row) => TaskListInfo(
+    id: row['id'] as String,
+    name: row['name'] as String,
+    iconKey: row['icon_key'] as String,
+  );
 
   IconData get icon => _listIconsByKey[iconKey] ?? Icons.list;
 
@@ -181,25 +402,20 @@ const _availableListIcons = <IconData>[
 ];
 
 class TaskManagerHome extends StatefulWidget {
-  const TaskManagerHome({super.key});
+  const TaskManagerHome({super.key, this.repository});
+
+  final SupabaseTaskRepository? repository;
 
   @override
   State<TaskManagerHome> createState() => _TaskManagerHomeState();
 }
 
-class _TaskManagerHomeState extends State<TaskManagerHome> {
+class _TaskManagerHomeState extends State<TaskManagerHome>
+    with WidgetsBindingObserver {
   final List<TaskListInfo> _lists = [
     TaskListInfo(id: createRecordId(), name: 'Work', iconKey: 'work'),
-    TaskListInfo(
-      id: createRecordId(),
-      name: 'Dojo',
-      iconKey: 'karate',
-    ),
-    TaskListInfo(
-      id: createRecordId(),
-      name: 'Home',
-      iconKey: 'home',
-    ),
+    TaskListInfo(id: createRecordId(), name: 'Dojo', iconKey: 'karate'),
+    TaskListInfo(id: createRecordId(), name: 'Home', iconKey: 'home'),
   ];
 
   // Each list has its own tasks.
@@ -211,7 +427,11 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 
   late String _selectedListId = _lists.first.id;
   int _selectedPriority = 3;
-  int _nextTaskOrder = 0;
+  StreamSubscription<void>? _cloudChangesSubscription;
+  int _cloudLoadGeneration = 0;
+  bool _hasCloudData = false;
+  bool _isLoadingCloudData = false;
+  String? _cloudLoadError;
 
   Timer? _uiTicker;
   bool _urgentVisible = true;
@@ -222,13 +442,13 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     // Refresh running timer displays and flash the URGENT label.
     _uiTicker = Timer.periodic(const Duration(milliseconds: 500), (_) {
       final needsRefresh = _tasksByList.values.any(
         (tasks) => tasks.any(
-          (task) =>
-              task.isRunning || (task.priority == 5 && !task.isCompleted),
+          (task) => task.isRunning || (task.priority == 5 && !task.isCompleted),
         ),
       );
 
@@ -238,13 +458,73 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
         });
       }
     });
+
+    if (widget.repository != null) {
+      _isLoadingCloudData = true;
+      _cloudChangesSubscription = widget.repository!.watchChanges().listen((_) {
+        _loadCloudData();
+      });
+      _loadCloudData(initial: true);
+    }
   }
 
   @override
   void dispose() {
     _uiTicker?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _cloudChangesSubscription?.cancel();
     _taskController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && widget.repository != null) {
+      _loadCloudData();
+    }
+  }
+
+  Future<void> _loadCloudData({bool initial = false}) async {
+    final repository = widget.repository;
+    if (repository == null) return;
+    final generation = ++_cloudLoadGeneration;
+
+    try {
+      await repository.syncServerClock();
+      final listRows = await repository.loadLists();
+      final taskRows = await repository.loadTasks();
+      final lists = listRows.map(TaskListInfo.fromRow).toList();
+      final tasksByList = <String, List<TaskItem>>{
+        for (final list in lists) list.id: <TaskItem>[],
+      };
+      for (final row in taskRows) {
+        final task = TaskItem.fromRow(row);
+        tasksByList[task.listId]?.add(task);
+      }
+
+      if (!mounted || generation != _cloudLoadGeneration) return;
+      setState(() {
+        _lists
+          ..clear()
+          ..addAll(lists);
+        _tasksByList
+          ..clear()
+          ..addAll(tasksByList);
+        if (!_lists.any((list) => list.id == _selectedListId)) {
+          _selectedListId = _lists.first.id;
+        }
+        _isLoadingCloudData = false;
+        _cloudLoadError = null;
+        _hasCloudData = true;
+      });
+    } catch (error) {
+      if (!mounted || generation != _cloudLoadGeneration) return;
+      setState(() {
+        _isLoadingCloudData = false;
+        _cloudLoadError = initial || !_hasCloudData ? error.toString() : null;
+      });
+      if (_hasCloudData) _showMessage('Could not refresh from cloud: $error');
+    }
   }
 
   List<TaskItem> get _visibleTasks {
@@ -260,9 +540,33 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     return tasks;
   }
 
-  void _addTask() {
+  Future<void> _addTask() async {
     final title = _taskController.text.trim();
     if (title.isEmpty) return;
+
+    final repository = widget.repository;
+    if (repository != null) {
+      final listId = _selectedListId;
+      final priority = _selectedPriority;
+      try {
+        final row = await repository.createTask(
+          id: createRecordId(),
+          listId: listId,
+          title: title,
+          priority: priority,
+        );
+        if (!mounted) return;
+        final savedTask = TaskItem.fromRow(row);
+        setState(() {
+          _tasksByList[savedTask.listId]!.add(savedTask);
+          _taskController.clear();
+          _selectedPriority = 3;
+        });
+      } catch (error) {
+        if (mounted) _showMessage('Task was not saved: $error');
+      }
+      return;
+    }
 
     setState(() {
       _tasksByList[_selectedListId]!.add(
@@ -271,7 +575,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
           listId: _selectedListId,
           title: title,
           priority: _selectedPriority,
-          order: _nextTaskOrder++,
+          order: _tasksByList[_selectedListId]!.length,
         ),
       );
 
@@ -292,15 +596,33 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     final result = await _showListEditor();
     if (!mounted || result == null) return;
 
-    if (_lists.any((list) => list.name.toLowerCase() == result.name.toLowerCase())) {
+    if (_lists.any(
+      (list) => list.name.toLowerCase() == result.name.toLowerCase(),
+    )) {
       _showMessage('A list with that name already exists.');
       return;
     }
 
+    var savedList = result;
+    if (widget.repository case final repository?) {
+      try {
+        final row = await repository.createList(
+          id: result.id,
+          name: result.name,
+          iconKey: result.iconKey,
+        );
+        savedList = TaskListInfo.fromRow(row);
+      } catch (error) {
+        if (mounted) _showMessage('List was not saved: $error');
+        return;
+      }
+    }
+    if (!mounted) return;
+
     setState(() {
-      _lists.add(result);
-      _tasksByList[result.id] = [];
-      _selectedListId = result.id;
+      _lists.add(savedList);
+      _tasksByList[savedList.id] = [];
+      _selectedListId = savedList.id;
     });
   }
 
@@ -311,11 +633,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     TaskListInfo listWithName(String name) {
       final iconKey = _iconKeyFor(selectedIcon);
       return existing == null
-          ? TaskListInfo(
-              id: createRecordId(),
-              name: name,
-              iconKey: iconKey,
-            )
+          ? TaskListInfo(id: createRecordId(), name: name, iconKey: iconKey)
           : existing.copyWith(name: name, iconKey: iconKey);
     }
 
@@ -345,16 +663,13 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
                 onSubmitted: (_) {
                   final name = nameController.text.trim();
                   if (name.isNotEmpty) {
-                    Navigator.pop(
-                      dialogContext,
-                      listWithName(name),
-                    );
+                    Navigator.pop(dialogContext, listWithName(name));
                   }
                 },
               ),
               const SizedBox(height: 18),
               DropdownButtonFormField<IconData>(
-                value: selectedIcon,
+                initialValue: selectedIcon,
                 decoration: const InputDecoration(labelText: 'Choose an icon'),
                 dropdownColor: AppColors.card,
                 items: [
@@ -385,10 +700,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
               onPressed: () {
                 final name = nameController.text.trim();
                 if (name.isEmpty) return;
-                Navigator.pop(
-                  dialogContext,
-                  listWithName(name),
-                );
+                Navigator.pop(dialogContext, listWithName(name));
               },
               child: Text(existing == null ? 'Add' : 'Save'),
             ),
@@ -418,10 +730,26 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
       return;
     }
 
+    var savedList = result;
+    if (widget.repository case final repository?) {
+      try {
+        final row = await repository.updateList(
+          id: result.id,
+          name: result.name,
+          iconKey: result.iconKey,
+        );
+        savedList = TaskListInfo.fromRow(row);
+      } catch (error) {
+        if (mounted) _showMessage('List changes were not saved: $error');
+        return;
+      }
+    }
+    if (!mounted) return;
+
     setState(() {
-      final index = _lists.indexOf(oldList);
-      _lists[index] = result;
-      _selectedListId = result.id;
+      final index = _lists.indexWhere((list) => list.id == savedList.id);
+      if (index >= 0) _lists[index] = savedList;
+      _selectedListId = savedList.id;
     });
   }
 
@@ -436,7 +764,10 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.sidebar,
-        title: const Text('Delete list?', style: TextStyle(color: AppColors.gold)),
+        title: const Text(
+          'Delete list?',
+          style: TextStyle(color: AppColors.gold),
+        ),
         content: Text('Delete "${selectedList.name}" and all of its tasks?'),
         actions: [
           TextButton(
@@ -451,6 +782,15 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
       ),
     );
     if (!mounted || confirmed != true) return;
+    if (widget.repository case final repository?) {
+      try {
+        await repository.deleteList(selectedList.id);
+      } catch (error) {
+        _showMessage('List was not deleted: $error');
+        return;
+      }
+    }
+    if (!mounted) return;
     setState(() {
       _lists.removeWhere((list) => list.id == selectedList.id);
       _tasksByList.remove(selectedList.id);
@@ -459,7 +799,8 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   static String _iconLabel(IconData icon) {
@@ -485,8 +826,20 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     return 'General';
   }
 
-  void _toggleTimer(TaskItem task) {
-    final now = DateTime.now();
+  Future<void> _toggleTimer(TaskItem task) async {
+    final now = widget.repository?.now ?? DateTime.now();
+
+    if (widget.repository case final repository?) {
+      try {
+        final row = task.isRunning
+            ? await repository.pauseTimer(task.id)
+            : await repository.startTimer(task.id);
+        if (mounted) _applySavedTask(row);
+      } catch (error) {
+        if (mounted) _showMessage('Timer change was not saved: $error');
+      }
+      return;
+    }
 
     setState(() {
       if (task.isRunning) {
@@ -500,8 +853,21 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     });
   }
 
-  void _toggleCompleted(TaskItem task) {
+  Future<void> _toggleCompleted(TaskItem task) async {
     final now = DateTime.now();
+
+    if (widget.repository case final repository?) {
+      try {
+        final row = await repository.setCompleted(
+          task.id,
+          completed: !task.isCompleted,
+        );
+        if (mounted) _applySavedTask(row);
+      } catch (error) {
+        if (mounted) _showMessage('Completion change was not saved: $error');
+      }
+      return;
+    }
 
     setState(() {
       if (!task.isCompleted) {
@@ -519,16 +885,95 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     });
   }
 
-  void _deleteTask(TaskItem task) {
+  Future<void> _deleteTask(TaskItem task) async {
+    if (widget.repository case final repository?) {
+      try {
+        await repository.deleteTask(task.id);
+      } catch (error) {
+        if (mounted) _showMessage('Task was not deleted: $error');
+        return;
+      }
+      if (!mounted) return;
+    }
+
     setState(() {
       _tasksByList[task.listId]!.remove(task);
     });
   }
 
+  void _applySavedTask(Map<String, dynamic> row) {
+    final savedTask = TaskItem.fromRow(row);
+    final tasks = _tasksByList[savedTask.listId];
+    if (tasks == null) return;
+    setState(() {
+      final index = tasks.indexWhere((task) => task.id == savedTask.id);
+      if (index >= 0) tasks[index] = savedTask;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingCloudData) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: AppColors.gold)),
+      );
+    }
+
+    if (_cloudLoadError != null) {
+      return Scaffold(
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 600),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.cloud_off,
+                    color: AppColors.urgent,
+                    size: 40,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Could not load your cloud lists.',
+                    style: TextStyle(color: AppColors.gold, fontSize: 20),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Check the connection and confirm the Supabase setup SQL '
+                    'has been run for this project.',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 12),
+                  SelectableText(
+                    _cloudLoadError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: AppColors.muted),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _isLoadingCloudData = true;
+                        _cloudLoadError = null;
+                      });
+                      _loadCloudData(initial: true);
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Try again'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     final isWide = MediaQuery.sizeOf(context).width >= 720;
-    final now = DateTime.now();
+    final now = widget.repository?.now ?? DateTime.now();
 
     return Scaffold(
       appBar: isWide
@@ -838,9 +1283,7 @@ class TaskListContent extends StatelessWidget {
                             vertical: 15,
                           ),
                           enabledBorder: OutlineInputBorder(
-                            borderSide: const BorderSide(
-                              color: AppColors.gold,
-                            ),
+                            borderSide: const BorderSide(color: AppColors.gold),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           focusedBorder: OutlineInputBorder(
@@ -879,28 +1322,30 @@ class TaskListContent extends StatelessWidget {
             Expanded(
               child: tasks.isEmpty
                   ? const EmptyTaskArea()
-: ScrollConfiguration(
-  behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
-  child: Padding(
-    padding: const EdgeInsets.only(right: 12),
-    child: ListView.separated(
-      itemCount: tasks.length,
-      separatorBuilder: (context, index) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final task = tasks[index];
-        return TaskCard(
-          key: ValueKey(task.id),
-          task: task,
-          now: now,
-          urgentVisible: urgentVisible,
-          onToggleTimer: () => onToggleTimer(task),
-          onToggleCompleted: () => onToggleCompleted(task),
-          onDelete: () => onDeleteTask(task),
-        );
-      },
-    ),
-  ),
-),
+                  : ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context)
+                          .copyWith(scrollbars: false),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: ListView.separated(
+                          itemCount: tasks.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final task = tasks[index];
+                            return TaskCard(
+                              key: ValueKey(task.id),
+                              task: task,
+                              now: now,
+                              urgentVisible: urgentVisible,
+                              onToggleTimer: () => onToggleTimer(task),
+                              onToggleCompleted: () => onToggleCompleted(task),
+                              onDelete: () => onDeleteTask(task),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
             ),
           ],
         ),
@@ -1011,46 +1456,45 @@ class TaskCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: isCompleted ? const Color(0xFF292929) : AppColors.card,
-        border: Border.all(
-          color: priorityColor(task.priority),
-          width: 2,
-        ),
+        border: Border.all(color: priorityColor(task.priority), width: 2),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
           Expanded(
-  child: Row(
-    children: [
-      Expanded(
-        child: Text(
-          task.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: isCompleted ? AppColors.muted : AppColors.white,
-            fontSize: 16,
-            decoration: isCompleted ? TextDecoration.lineThrough : null,
-          ),
-        ),
-      ),
-      if (task.priority == 5 && !isCompleted)
-        Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: Opacity(
-            opacity: urgentVisible ? 1 : 0,
-            child: const Text(
-              'URGENT',
-              style: TextStyle(
-                color: AppColors.urgent,
-                fontWeight: FontWeight.bold,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    task.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isCompleted ? AppColors.muted : AppColors.white,
+                      fontSize: 16,
+                      decoration: isCompleted
+                          ? TextDecoration.lineThrough
+                          : null,
+                    ),
+                  ),
+                ),
+                if (task.priority == 5 && !isCompleted)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Opacity(
+                      opacity: urgentVisible ? 1 : 0,
+                      child: const Text(
+                        'URGENT',
+                        style: TextStyle(
+                          color: AppColors.urgent,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
-        ),
-    ],
-  ),
-),
           const SizedBox(width: 8),
 
           // Fixed-width control slots keep the row from shifting.
@@ -1069,10 +1513,7 @@ class TaskCard extends StatelessWidget {
               tooltip: task.isRunning ? 'Pause timer' : 'Start or resume timer',
               onPressed: isCompleted ? null : onToggleTimer,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(
-                width: 40,
-                height: 40,
-              ),
+              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
               icon: Icon(
                 task.isRunning ? Icons.pause : Icons.play_arrow,
                 color: isCompleted ? AppColors.muted : AppColors.gold,
@@ -1084,14 +1525,9 @@ class TaskCard extends StatelessWidget {
               tooltip: isCompleted ? 'Mark task incomplete' : 'Complete task',
               onPressed: onToggleCompleted,
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(
-                width: 40,
-                height: 40,
-              ),
+              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
               icon: Icon(
-                isCompleted
-                    ? Icons.check_box
-                    : Icons.check_box_outline_blank,
+                isCompleted ? Icons.check_box : Icons.check_box_outline_blank,
                 color: AppColors.gold,
               ),
             ),
@@ -1108,10 +1544,7 @@ class TaskCard extends StatelessWidget {
                       width: 40,
                       height: 40,
                     ),
-                    icon: const Icon(
-                      Icons.close,
-                      color: AppColors.urgent,
-                    ),
+                    icon: const Icon(Icons.close, color: AppColors.urgent),
                   )
                 : const SizedBox(width: 40, height: 40),
           ),
@@ -1128,11 +1561,7 @@ class _ControlSlot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 40,
-      height: 40,
-      child: Center(child: child),
-    );
+    return SizedBox(width: 40, height: 40, child: Center(child: child));
   }
 }
 
