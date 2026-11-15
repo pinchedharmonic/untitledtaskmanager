@@ -82,6 +82,46 @@ class TaskItem {
   }
 }
 
+class TaskListInfo {
+  const TaskListInfo({
+    required this.name,
+    required this.icon,
+  });
+
+  final String name;
+  final IconData icon;
+
+  TaskListInfo copyWith({String? name, IconData? icon}) {
+    return TaskListInfo(
+      name: name ?? this.name,
+      icon: icon ?? this.icon,
+    );
+  }
+}
+
+const _availableListIcons = <IconData>[
+  Icons.list,
+  Icons.work_outline,
+  Icons.home_outlined,
+  Icons.sports_martial_arts,
+  Icons.school_outlined,
+  Icons.shopping_cart_outlined,
+  Icons.fitness_center,
+  Icons.restaurant_outlined,
+  Icons.pets_outlined,
+  Icons.favorite_border,
+  Icons.flight_outlined,
+  Icons.directions_car_outlined,
+  Icons.build_outlined,
+  Icons.music_note_outlined,
+  Icons.book_outlined,
+  Icons.lightbulb_outline,
+  Icons.event_outlined,
+  Icons.star_outline,
+  Icons.spa_outlined,
+  Icons.computer_outlined,
+];
+
 class TaskManagerHome extends StatefulWidget {
   const TaskManagerHome({super.key});
 
@@ -90,7 +130,17 @@ class TaskManagerHome extends StatefulWidget {
 }
 
 class _TaskManagerHomeState extends State<TaskManagerHome> {
-  static const _listNames = ['Work', 'Dojo', 'Home'];
+  final List<TaskListInfo> _lists = [
+    const TaskListInfo(name: 'Work', icon: Icons.work_outline),
+    const TaskListInfo(
+      name: 'Dojo',
+      icon: Icons.sports_martial_arts,
+    ),
+    const TaskListInfo(
+      name: 'Home',
+      icon: Icons.home_outlined,
+    ),
+  ];
 
   // Each list has its own tasks.
   final Map<String, List<TaskItem>> _tasksByList = {
@@ -107,6 +157,9 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 
   Timer? _uiTicker;
   bool _urgentVisible = true;
+
+  TaskListInfo get _selectedListInfo =>
+      _lists.firstWhere((list) => list.name == _selectedList);
 
   @override
   void initState() {
@@ -173,6 +226,203 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     setState(() {
       _selectedList = listName;
     });
+  }
+
+  Future<void> _addList() async {
+    final result = await _showListEditor();
+    if (!mounted || result == null) return;
+
+    if (_lists.any((list) => list.name.toLowerCase() == result.name.toLowerCase())) {
+      _showMessage('A list with that name already exists.');
+      return;
+    }
+
+    setState(() {
+      _lists.add(result);
+      _tasksByList[result.name] = [];
+      _selectedList = result.name;
+    });
+  }
+
+  Future<TaskListInfo?> _showListEditor({TaskListInfo? existing}) async {
+    final nameController = TextEditingController(text: existing?.name ?? '');
+    var selectedIcon = existing?.icon ?? _availableListIcons.first;
+
+    final result = await showDialog<TaskListInfo>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.sidebar,
+          title: Text(
+            existing == null ? 'Add list' : 'Rename list',
+            style: const TextStyle(color: AppColors.gold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: nameController,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'List name',
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: AppColors.gold),
+                  ),
+                ),
+                onSubmitted: (_) {
+                  final name = nameController.text.trim();
+                  if (name.isNotEmpty) {
+                    Navigator.pop(
+                      dialogContext,
+                      (existing ??
+                              TaskListInfo(
+                                name: name,
+                                icon: selectedIcon,
+                              ))
+                          .copyWith(name: name, icon: selectedIcon),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 18),
+              DropdownButtonFormField<IconData>(
+                value: selectedIcon,
+                decoration: const InputDecoration(labelText: 'Choose an icon'),
+                dropdownColor: AppColors.card,
+                items: [
+                  for (final icon in _availableListIcons)
+                    DropdownMenuItem(
+                      value: icon,
+                      child: Row(
+                        children: [
+                          Icon(icon, color: AppColors.gold),
+                          const SizedBox(width: 12),
+                          Text(_iconLabel(icon)),
+                        ],
+                      ),
+                    ),
+                ],
+                onChanged: (icon) {
+                  if (icon != null) setDialogState(() => selectedIcon = icon);
+                },
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final name = nameController.text.trim();
+                if (name.isEmpty) return;
+                Navigator.pop(
+                  dialogContext,
+                  (existing ??
+                          TaskListInfo(
+                            name: name,
+                            icon: selectedIcon,
+                          ))
+                      .copyWith(name: name, icon: selectedIcon),
+                );
+              },
+              child: Text(existing == null ? 'Add' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    nameController.dispose();
+    return result;
+  }
+
+  Future<void> _renameSelectedList() async {
+    final oldList = _selectedListInfo;
+    final result = await _showListEditor(existing: oldList);
+    if (!mounted ||
+        result == null ||
+        (result.name == oldList.name && result.icon == oldList.icon)) {
+      return;
+    }
+
+    if (_lists.any(
+      (list) =>
+          list.name != oldList.name &&
+          list.name.toLowerCase() == result.name.toLowerCase(),
+    )) {
+      _showMessage('A list with that name already exists.');
+      return;
+    }
+
+    setState(() {
+      final index = _lists.indexOf(oldList);
+      _lists[index] = result;
+      _tasksByList[result.name] = _tasksByList.remove(oldList.name)!;
+      _selectedList = result.name;
+    });
+  }
+
+  Future<void> _deleteSelectedList() async {
+    if (_lists.length == 1) {
+      _showMessage('Keep at least one list.');
+      return;
+    }
+
+    final name = _selectedList;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.sidebar,
+        title: const Text('Delete list?', style: TextStyle(color: AppColors.gold)),
+        content: Text('Delete "$name" and all of its tasks?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    setState(() {
+      _lists.removeWhere((list) => list.name == name);
+      _tasksByList.remove(name);
+      _selectedList = _lists.first.name;
+    });
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  static String _iconLabel(IconData icon) {
+    if (icon == Icons.sports_martial_arts) return 'Karate';
+    if (icon == Icons.work_outline) return 'Work';
+    if (icon == Icons.home_outlined) return 'Home';
+    if (icon == Icons.school_outlined) return 'School';
+    if (icon == Icons.shopping_cart_outlined) return 'Shopping';
+    if (icon == Icons.fitness_center) return 'Fitness';
+    if (icon == Icons.restaurant_outlined) return 'Food';
+    if (icon == Icons.pets_outlined) return 'Pets';
+    if (icon == Icons.favorite_border) return 'Health';
+    if (icon == Icons.flight_outlined) return 'Travel';
+    if (icon == Icons.directions_car_outlined) return 'Car';
+    if (icon == Icons.build_outlined) return 'Tools';
+    if (icon == Icons.music_note_outlined) return 'Music';
+    if (icon == Icons.book_outlined) return 'Reading';
+    if (icon == Icons.lightbulb_outline) return 'Ideas';
+    if (icon == Icons.event_outlined) return 'Events';
+    if (icon == Icons.star_outline) return 'Favorites';
+    if (icon == Icons.spa_outlined) return 'Self care';
+    if (icon == Icons.computer_outlined) return 'Computer';
+    return 'General';
   }
 
   void _toggleTimer(TaskItem task) {
@@ -245,8 +495,11 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
               backgroundColor: AppColors.sidebar,
               child: TaskListSidebar(
                 selectedList: _selectedList,
-                listNames: _listNames,
+                lists: _lists,
                 onListSelected: _selectList,
+                onAddList: _addList,
+                onRenameList: _renameSelectedList,
+                onDeleteList: _deleteSelectedList,
                 inDrawer: true,
               ),
             ),
@@ -255,8 +508,11 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
           if (isWide)
             TaskListSidebar(
               selectedList: _selectedList,
-              listNames: _listNames,
+              lists: _lists,
               onListSelected: _selectList,
+              onAddList: _addList,
+              onRenameList: _renameSelectedList,
+              onDeleteList: _deleteSelectedList,
             ),
           Expanded(
             child: TaskListContent(
@@ -287,14 +543,20 @@ class TaskListSidebar extends StatelessWidget {
   const TaskListSidebar({
     super.key,
     required this.selectedList,
-    required this.listNames,
+    required this.lists,
     required this.onListSelected,
+    required this.onAddList,
+    required this.onRenameList,
+    required this.onDeleteList,
     this.inDrawer = false,
   });
 
   final String selectedList;
-  final List<String> listNames;
+  final List<TaskListInfo> lists;
   final ValueChanged<String> onListSelected;
+  final VoidCallback onAddList;
+  final VoidCallback onRenameList;
+  final VoidCallback onDeleteList;
   final bool inDrawer;
 
   @override
@@ -325,55 +587,71 @@ class TaskListSidebar extends StatelessWidget {
                 child: ListView(
                   padding: EdgeInsets.zero,
                   children: [
-                    for (final name in listNames)
-                      ListTile(
-                        selected: name == selectedList,
-                        selectedTileColor: AppColors.gold,
-                        selectedColor: AppColors.background,
-                        leading: Icon(_iconForList(name)),
-                        title: Text(name),
-                        shape: RoundedRectangleBorder(
+                    for (final list in lists)
+                      Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: BoxDecoration(
+                          color: list.name == selectedList
+                              ? const Color(0xFF9C8237)
+                              : Colors.transparent,
                           borderRadius: BorderRadius.circular(8),
+                          border: list.name == selectedList
+                              ? Border.all(color: AppColors.gold, width: 2)
+                              : null,
                         ),
-                        onTap: () {
-                          onListSelected(name);
-                          if (inDrawer) Navigator.pop(context);
-                        },
+                        child: ListTile(
+                          selected: list.name == selectedList,
+                          selectedTileColor: Colors.transparent,
+                          selectedColor: AppColors.background,
+                          leading: Icon(
+                            list.icon,
+                            color: list.name == selectedList
+                                ? AppColors.background
+                                : AppColors.gold,
+                          ),
+                          title: Text(
+                            list.name,
+                            style: TextStyle(
+                              color: list.name == selectedList
+                                  ? AppColors.background
+                                  : AppColors.white,
+                              fontWeight: list.name == selectedList
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          onTap: () {
+                            onListSelected(list.name);
+                            if (inDrawer) Navigator.pop(context);
+                          },
+                        ),
                       ),
                   ],
                 ),
               ),
-              const SidebarButton(icon: Icons.add, label: 'Add list'),
-              const SidebarButton(
+              SidebarButton(
+                icon: Icons.add,
+                label: 'Add list',
+                onPressed: onAddList,
+              ),
+              SidebarButton(
                 icon: Icons.edit_outlined,
                 label: 'Rename',
+                onPressed: onRenameList,
               ),
-              const SidebarButton(
-                icon: Icons.palette_outlined,
-                label: 'Color',
-              ),
-              const SidebarButton(
+              SidebarButton(
                 icon: Icons.delete_outline,
                 label: 'Delete list',
+                onPressed: onDeleteList,
               ),
             ],
           ),
         ),
       ),
     );
-  }
-
-  IconData _iconForList(String name) {
-    switch (name) {
-      case 'Work':
-        return Icons.work_outline;
-      case 'Dojo':
-        return Icons.sports_martial_arts;
-      case 'Home':
-        return Icons.home_outlined;
-      default:
-        return Icons.list;
-    }
   }
 }
 
@@ -382,27 +660,38 @@ class SidebarButton extends StatelessWidget {
     super.key,
     required this.icon,
     required this.label,
+    required this.onPressed,
   });
 
   final IconData icon;
   final String label;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        border: Border.all(color: AppColors.gold),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: AppColors.gold, size: 19),
-          const SizedBox(width: 10),
-          Text(label, style: const TextStyle(color: AppColors.white)),
-        ],
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.gold),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: AppColors.gold, size: 19),
+                const SizedBox(width: 10),
+                Text(label, style: const TextStyle(color: AppColors.white)),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
