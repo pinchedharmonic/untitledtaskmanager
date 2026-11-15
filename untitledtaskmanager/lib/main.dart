@@ -53,7 +53,7 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// A task remembers its priority and timer information.
+// Each task keeps its priority and timer information.
 class TaskItem {
   TaskItem({
     required this.title,
@@ -65,10 +65,10 @@ class TaskItem {
   final int priority;
   final int order;
 
-  // Time already accumulated before the current timer run.
+  // Time saved from earlier timer runs, including paused time.
   Duration accumulatedTime = Duration.zero;
 
-  // This is null when the task is paused or hasn't been started.
+  // Null means the timer is paused or has not started.
   DateTime? startedAt;
 
   bool isCompleted = false;
@@ -76,10 +76,8 @@ class TaskItem {
   bool get isRunning => startedAt != null;
 
   Duration elapsedAt(DateTime now) {
-    final currentRun = startedAt == null
-        ? Duration.zero
-        : now.difference(startedAt!);
-
+    final currentRun =
+        startedAt == null ? Duration.zero : now.difference(startedAt!);
     return accumulatedTime + currentRun;
   }
 }
@@ -94,6 +92,7 @@ class TaskManagerHome extends StatefulWidget {
 class _TaskManagerHomeState extends State<TaskManagerHome> {
   static const _listNames = ['Work', 'Dojo', 'Home'];
 
+  // Each list has its own tasks.
   final Map<String, List<TaskItem>> _tasksByList = {
     'Work': [],
     'Dojo': [],
@@ -113,17 +112,16 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
   void initState() {
     super.initState();
 
-    // Refresh the displayed timer and flash the URGENT label.
+    // Refresh running timer displays and flash the URGENT label.
     _uiTicker = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      final hasRunningTask =
-          _tasksByList.values.any((tasks) => tasks.any((task) => task.isRunning));
-      final hasUrgentTask = _tasksByList.values.any(
+      final needsRefresh = _tasksByList.values.any(
         (tasks) => tasks.any(
-          (task) => task.priority == 5 && !task.isCompleted,
+          (task) =>
+              task.isRunning || (task.priority == 5 && !task.isCompleted),
         ),
       );
 
-      if (hasRunningTask || hasUrgentTask) {
+      if (needsRefresh) {
         setState(() {
           _urgentVisible = !_urgentVisible;
         });
@@ -141,7 +139,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
   List<TaskItem> get _visibleTasks {
     final tasks = List<TaskItem>.of(_tasksByList[_selectedList]!);
 
-    // Higher priorities appear first; equal priorities keep their add order.
+    // Higher priority tasks go first. Equal priorities stay in add order.
     tasks.sort((a, b) {
       final priorityOrder = b.priority.compareTo(a.priority);
       if (priorityOrder != 0) return priorityOrder;
@@ -163,7 +161,11 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
           order: _nextTaskOrder++,
         ),
       );
+
       _taskController.clear();
+
+      // Reset the picker to the middle, orange priority after each task.
+      _selectedPriority = 3;
     });
   }
 
@@ -178,26 +180,32 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 
     setState(() {
       if (task.isRunning) {
-        // Pause: save the elapsed time and clear the current start time.
+        // Pause: save this run's time and clear the start time.
         task.accumulatedTime = task.elapsedAt(now);
         task.startedAt = null;
       } else if (!task.isCompleted) {
-        // Play: start a new run, or resume after a pause.
+        // Play: start the timer, or resume after a pause.
         task.startedAt = now;
       }
     });
   }
 
-  void _completeTask(TaskItem task) {
+  void _toggleCompleted(TaskItem task) {
     final now = DateTime.now();
 
     setState(() {
-      if (task.isRunning) {
-        task.accumulatedTime = task.elapsedAt(now);
-        task.startedAt = null;
-      }
+      if (!task.isCompleted) {
+        // Completing a running task stops its timer.
+        if (task.isRunning) {
+          task.accumulatedTime = task.elapsedAt(now);
+          task.startedAt = null;
+        }
 
-      task.isCompleted = true;
+        task.isCompleted = true;
+      } else {
+        // Unchecking restores the task with its timer paused.
+        task.isCompleted = false;
+      }
     });
   }
 
@@ -265,7 +273,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
               },
               onAddTask: _addTask,
               onToggleTimer: _toggleTimer,
-              onCompleteTask: _completeTask,
+              onToggleCompleted: _toggleCompleted,
               onDeleteTask: _deleteTask,
             ),
           ),
@@ -412,7 +420,7 @@ class TaskListContent extends StatelessWidget {
     required this.onPrioritySelected,
     required this.onAddTask,
     required this.onToggleTimer,
-    required this.onCompleteTask,
+    required this.onToggleCompleted,
     required this.onDeleteTask,
   });
 
@@ -425,7 +433,7 @@ class TaskListContent extends StatelessWidget {
   final ValueChanged<int> onPrioritySelected;
   final VoidCallback onAddTask;
   final ValueChanged<TaskItem> onToggleTimer;
-  final ValueChanged<TaskItem> onCompleteTask;
+  final ValueChanged<TaskItem> onToggleCompleted;
   final ValueChanged<TaskItem> onDeleteTask;
 
   @override
@@ -526,7 +534,8 @@ class TaskListContent extends StatelessWidget {
                           now: now,
                           urgentVisible: urgentVisible,
                           onToggleTimer: () => onToggleTimer(task),
-                          onComplete: () => onCompleteTask(task),
+                          onToggleCompleted: () =>
+                              onToggleCompleted(task),
                           onDelete: () => onDeleteTask(task),
                         );
                       },
@@ -566,15 +575,26 @@ class PriorityPicker extends StatelessWidget {
           tooltip: 'Choose priority color',
           initialValue: selectedPriority,
           onSelected: onPrioritySelected,
+
+          // These constraints make the menu as wide as its 52-pixel button.
+          constraints: const BoxConstraints(minWidth: 52, maxWidth: 52),
+          padding: EdgeInsets.zero,
+          menuPadding: EdgeInsets.zero,
+          color: AppColors.sidebar,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(26),
+          ),
           itemBuilder: (context) => [
-            // The picker displays the colors from high (red) to low (yellow).
+            // The five circles appear from highest priority to lowest.
             for (final priority in [5, 4, 3, 2, 1])
               PopupMenuItem<int>(
                 value: priority,
+                height: 48,
+                padding: EdgeInsets.zero,
                 child: Center(
                   child: Container(
-                    width: 25,
-                    height: 25,
+                    width: 24,
+                    height: 24,
                     decoration: BoxDecoration(
                       color: priorityColor(priority),
                       shape: BoxShape.circle,
@@ -611,7 +631,7 @@ class TaskCard extends StatelessWidget {
     required this.now,
     required this.urgentVisible,
     required this.onToggleTimer,
-    required this.onComplete,
+    required this.onToggleCompleted,
     required this.onDelete,
   });
 
@@ -619,7 +639,7 @@ class TaskCard extends StatelessWidget {
   final DateTime now;
   final bool urgentVisible;
   final VoidCallback onToggleTimer;
-  final VoidCallback onComplete;
+  final VoidCallback onToggleCompleted;
   final VoidCallback onDelete;
 
   @override
@@ -668,49 +688,96 @@ class TaskCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text(
-            _formatDuration(task.elapsedAt(now)),
-            style: const TextStyle(
-              color: AppColors.muted,
-              fontFeatures: [FontFeature.tabularFigures()],
+
+          // Fixed-width control slots keep the row from shifting.
+          SizedBox(
+            width: 78,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                _formatDuration(task.elapsedAt(now)),
+                style: const TextStyle(color: AppColors.muted),
+              ),
             ),
           ),
-          if (isCompleted)
-            IconButton(
-              tooltip: 'Remove completed task',
-              onPressed: onDelete,
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.close, color: AppColors.urgent),
-            )
-          else ...[
-            IconButton(
+          _ControlSlot(
+            child: IconButton(
               tooltip: task.isRunning ? 'Pause timer' : 'Start or resume timer',
-              onPressed: onToggleTimer,
-              visualDensity: VisualDensity.compact,
+              onPressed: isCompleted ? null : onToggleTimer,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(
+                width: 40,
+                height: 40,
+              ),
               icon: Icon(
                 task.isRunning ? Icons.pause : Icons.play_arrow,
+                color: isCompleted ? AppColors.muted : AppColors.gold,
+              ),
+            ),
+          ),
+          _ControlSlot(
+            child: IconButton(
+              tooltip: isCompleted ? 'Mark task incomplete' : 'Complete task',
+              onPressed: onToggleCompleted,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(
+                width: 40,
+                height: 40,
+              ),
+              icon: Icon(
+                isCompleted
+                    ? Icons.check_box
+                    : Icons.check_box_outline_blank,
                 color: AppColors.gold,
               ),
             ),
-            IconButton(
-              tooltip: 'Complete task',
-              onPressed: onComplete,
-              visualDensity: VisualDensity.compact,
-              icon: const Icon(Icons.check, color: AppColors.gold),
-            ),
-          ],
+          ),
+
+          // Keep this slot even while incomplete, so the X doesn't move controls.
+          _ControlSlot(
+            child: isCompleted
+                ? IconButton(
+                    tooltip: 'Remove task',
+                    onPressed: onDelete,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 40,
+                      height: 40,
+                    ),
+                    icon: const Icon(
+                      Icons.close,
+                      color: AppColors.urgent,
+                    ),
+                  )
+                : const SizedBox(width: 40, height: 40),
+          ),
         ],
       ),
     );
   }
+}
 
-  String _formatDuration(Duration duration) {
-    final hours = duration.inHours.toString().padLeft(2, '0');
-    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+class _ControlSlot extends StatelessWidget {
+  const _ControlSlot({required this.child});
 
-    return '$hours:$minutes:$seconds';
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Center(child: child),
+    );
   }
+}
+
+String _formatDuration(Duration duration) {
+  final hours = duration.inHours.toString().padLeft(2, '0');
+  final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
+  final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+
+  return '$hours:$minutes:$seconds';
 }
 
 class EmptyTaskArea extends StatelessWidget {
