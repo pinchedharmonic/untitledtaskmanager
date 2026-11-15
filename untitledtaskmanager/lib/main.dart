@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:material_ui/material_ui.dart';
 
@@ -32,6 +33,24 @@ Color priorityColor(int priority) {
   }
 }
 
+String createRecordId() {
+  final random = Random.secure();
+  final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+
+  // Mark this as a version 4 UUID with the standard variant bits.
+  bytes[6] = (bytes[6] & 0x0F) | 0x40;
+  bytes[8] = (bytes[8] & 0x3F) | 0x80;
+
+  final hex = bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join();
+  return '${hex.substring(0, 8)}-'
+      '${hex.substring(8, 12)}-'
+      '${hex.substring(12, 16)}-'
+      '${hex.substring(16, 20)}-'
+      '${hex.substring(20, 32)}';
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -56,11 +75,15 @@ class MyApp extends StatelessWidget {
 // Each task keeps its priority and timer information.
 class TaskItem {
   TaskItem({
+    required this.id,
+    required this.listId,
     required this.title,
     required this.priority,
     required this.order,
   });
 
+  final String id;
+  final String listId;
   final String title;
   final int priority;
   final int order;
@@ -84,19 +107,54 @@ class TaskItem {
 
 class TaskListInfo {
   const TaskListInfo({
+    required this.id,
     required this.name,
-    required this.icon,
+    required this.iconKey,
   });
 
+  final String id;
   final String name;
-  final IconData icon;
+  final String iconKey;
 
-  TaskListInfo copyWith({String? name, IconData? icon}) {
+  IconData get icon => _listIconsByKey[iconKey] ?? Icons.list;
+
+  TaskListInfo copyWith({String? name, String? iconKey}) {
     return TaskListInfo(
+      id: id,
       name: name ?? this.name,
-      icon: icon ?? this.icon,
+      iconKey: iconKey ?? this.iconKey,
     );
   }
+}
+
+const _listIconsByKey = <String, IconData>{
+  'general': Icons.list,
+  'work': Icons.work_outline,
+  'home': Icons.home_outlined,
+  'karate': Icons.sports_martial_arts,
+  'school': Icons.school_outlined,
+  'shopping': Icons.shopping_cart_outlined,
+  'fitness': Icons.fitness_center,
+  'food': Icons.restaurant_outlined,
+  'pets': Icons.pets_outlined,
+  'health': Icons.favorite_border,
+  'travel': Icons.flight_outlined,
+  'car': Icons.directions_car_outlined,
+  'tools': Icons.build_outlined,
+  'music': Icons.music_note_outlined,
+  'reading': Icons.book_outlined,
+  'ideas': Icons.lightbulb_outline,
+  'events': Icons.event_outlined,
+  'favorites': Icons.star_outline,
+  'selfCare': Icons.spa_outlined,
+  'computer': Icons.computer_outlined,
+};
+
+String _iconKeyFor(IconData icon) {
+  for (final entry in _listIconsByKey.entries) {
+    if (entry.value == icon) return entry.key;
+  }
+  return 'general';
 }
 
 const _availableListIcons = <IconData>[
@@ -131,27 +189,27 @@ class TaskManagerHome extends StatefulWidget {
 
 class _TaskManagerHomeState extends State<TaskManagerHome> {
   final List<TaskListInfo> _lists = [
-    const TaskListInfo(name: 'Work', icon: Icons.work_outline),
-    const TaskListInfo(
+    TaskListInfo(id: createRecordId(), name: 'Work', iconKey: 'work'),
+    TaskListInfo(
+      id: createRecordId(),
       name: 'Dojo',
-      icon: Icons.sports_martial_arts,
+      iconKey: 'karate',
     ),
-    const TaskListInfo(
+    TaskListInfo(
+      id: createRecordId(),
       name: 'Home',
-      icon: Icons.home_outlined,
+      iconKey: 'home',
     ),
   ];
 
   // Each list has its own tasks.
-  final Map<String, List<TaskItem>> _tasksByList = {
-    'Work': [],
-    'Dojo': [],
-    'Home': [],
+  late final Map<String, List<TaskItem>> _tasksByList = {
+    for (final list in _lists) list.id: <TaskItem>[],
   };
 
   final _taskController = TextEditingController();
 
-  String _selectedList = 'Work';
+  late String _selectedListId = _lists.first.id;
   int _selectedPriority = 3;
   int _nextTaskOrder = 0;
 
@@ -159,7 +217,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
   bool _urgentVisible = true;
 
   TaskListInfo get _selectedListInfo =>
-      _lists.firstWhere((list) => list.name == _selectedList);
+      _lists.firstWhere((list) => list.id == _selectedListId);
 
   @override
   void initState() {
@@ -190,7 +248,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
   }
 
   List<TaskItem> get _visibleTasks {
-    final tasks = List<TaskItem>.of(_tasksByList[_selectedList]!);
+    final tasks = List<TaskItem>.of(_tasksByList[_selectedListId]!);
 
     // Higher priority tasks go first. Equal priorities stay in add order.
     tasks.sort((a, b) {
@@ -207,8 +265,10 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     if (title.isEmpty) return;
 
     setState(() {
-      _tasksByList[_selectedList]!.add(
+      _tasksByList[_selectedListId]!.add(
         TaskItem(
+          id: createRecordId(),
+          listId: _selectedListId,
           title: title,
           priority: _selectedPriority,
           order: _nextTaskOrder++,
@@ -222,9 +282,9 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     });
   }
 
-  void _selectList(String listName) {
+  void _selectList(String listId) {
     setState(() {
-      _selectedList = listName;
+      _selectedListId = listId;
     });
   }
 
@@ -239,14 +299,25 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 
     setState(() {
       _lists.add(result);
-      _tasksByList[result.name] = [];
-      _selectedList = result.name;
+      _tasksByList[result.id] = [];
+      _selectedListId = result.id;
     });
   }
 
   Future<TaskListInfo?> _showListEditor({TaskListInfo? existing}) async {
     final nameController = TextEditingController(text: existing?.name ?? '');
     var selectedIcon = existing?.icon ?? _availableListIcons.first;
+
+    TaskListInfo listWithName(String name) {
+      final iconKey = _iconKeyFor(selectedIcon);
+      return existing == null
+          ? TaskListInfo(
+              id: createRecordId(),
+              name: name,
+              iconKey: iconKey,
+            )
+          : existing.copyWith(name: name, iconKey: iconKey);
+    }
 
     final result = await showDialog<TaskListInfo>(
       context: context,
@@ -276,12 +347,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
                   if (name.isNotEmpty) {
                     Navigator.pop(
                       dialogContext,
-                      (existing ??
-                              TaskListInfo(
-                                name: name,
-                                icon: selectedIcon,
-                              ))
-                          .copyWith(name: name, icon: selectedIcon),
+                      listWithName(name),
                     );
                   }
                 },
@@ -321,12 +387,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
                 if (name.isEmpty) return;
                 Navigator.pop(
                   dialogContext,
-                  (existing ??
-                          TaskListInfo(
-                            name: name,
-                            icon: selectedIcon,
-                          ))
-                      .copyWith(name: name, icon: selectedIcon),
+                  listWithName(name),
                 );
               },
               child: Text(existing == null ? 'Add' : 'Save'),
@@ -350,7 +411,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 
     if (_lists.any(
       (list) =>
-          list.name != oldList.name &&
+          list.id != oldList.id &&
           list.name.toLowerCase() == result.name.toLowerCase(),
     )) {
       _showMessage('A list with that name already exists.');
@@ -360,8 +421,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     setState(() {
       final index = _lists.indexOf(oldList);
       _lists[index] = result;
-      _tasksByList[result.name] = _tasksByList.remove(oldList.name)!;
-      _selectedList = result.name;
+      _selectedListId = result.id;
     });
   }
 
@@ -371,13 +431,13 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
       return;
     }
 
-    final name = _selectedList;
+    final selectedList = _selectedListInfo;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         backgroundColor: AppColors.sidebar,
         title: const Text('Delete list?', style: TextStyle(color: AppColors.gold)),
-        content: Text('Delete "$name" and all of its tasks?'),
+        content: Text('Delete "${selectedList.name}" and all of its tasks?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -392,9 +452,9 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
     );
     if (!mounted || confirmed != true) return;
     setState(() {
-      _lists.removeWhere((list) => list.name == name);
-      _tasksByList.remove(name);
-      _selectedList = _lists.first.name;
+      _lists.removeWhere((list) => list.id == selectedList.id);
+      _tasksByList.remove(selectedList.id);
+      _selectedListId = _lists.first.id;
     });
   }
 
@@ -461,7 +521,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 
   void _deleteTask(TaskItem task) {
     setState(() {
-      _tasksByList[_selectedList]!.remove(task);
+      _tasksByList[task.listId]!.remove(task);
     });
   }
 
@@ -494,7 +554,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
           : Drawer(
               backgroundColor: AppColors.sidebar,
               child: TaskListSidebar(
-                selectedList: _selectedList,
+                selectedListId: _selectedListId,
                 lists: _lists,
                 onListSelected: _selectList,
                 onAddList: _addList,
@@ -507,7 +567,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
         children: [
           if (isWide)
             TaskListSidebar(
-              selectedList: _selectedList,
+              selectedListId: _selectedListId,
               lists: _lists,
               onListSelected: _selectList,
               onAddList: _addList,
@@ -516,7 +576,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
             ),
           Expanded(
             child: TaskListContent(
-              selectedList: _selectedList,
+              selectedList: _selectedListInfo.name,
               tasks: _visibleTasks,
               now: now,
               urgentVisible: _urgentVisible,
@@ -542,7 +602,7 @@ class _TaskManagerHomeState extends State<TaskManagerHome> {
 class TaskListSidebar extends StatelessWidget {
   const TaskListSidebar({
     super.key,
-    required this.selectedList,
+    required this.selectedListId,
     required this.lists,
     required this.onListSelected,
     required this.onAddList,
@@ -551,7 +611,7 @@ class TaskListSidebar extends StatelessWidget {
     this.inDrawer = false,
   });
 
-  final String selectedList;
+  final String selectedListId;
   final List<TaskListInfo> lists;
   final ValueChanged<String> onListSelected;
   final VoidCallback onAddList;
@@ -589,33 +649,34 @@ class TaskListSidebar extends StatelessWidget {
                   children: [
                     for (final list in lists)
                       Container(
+                        key: ValueKey(list.id),
                         margin: const EdgeInsets.symmetric(vertical: 4),
                         decoration: BoxDecoration(
-                          color: list.name == selectedList
+                          color: list.id == selectedListId
                               ? const Color(0xFF9C8237)
                               : Colors.transparent,
                           borderRadius: BorderRadius.circular(8),
-                          border: list.name == selectedList
+                          border: list.id == selectedListId
                               ? Border.all(color: AppColors.gold, width: 2)
                               : null,
                         ),
                         child: ListTile(
-                          selected: list.name == selectedList,
+                          selected: list.id == selectedListId,
                           selectedTileColor: Colors.transparent,
                           selectedColor: AppColors.background,
                           leading: Icon(
                             list.icon,
-                            color: list.name == selectedList
+                            color: list.id == selectedListId
                                 ? AppColors.background
                                 : AppColors.gold,
                           ),
                           title: Text(
                             list.name,
                             style: TextStyle(
-                              color: list.name == selectedList
+                              color: list.id == selectedListId
                                   ? AppColors.background
                                   : AppColors.white,
-                              fontWeight: list.name == selectedList
+                              fontWeight: list.id == selectedListId
                                   ? FontWeight.bold
                                   : FontWeight.normal,
                             ),
@@ -624,7 +685,7 @@ class TaskListSidebar extends StatelessWidget {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           onTap: () {
-                            onListSelected(list.name);
+                            onListSelected(list.id);
                             if (inDrawer) Navigator.pop(context);
                           },
                         ),
@@ -822,6 +883,7 @@ class TaskListContent extends StatelessWidget {
       itemBuilder: (context, index) {
         final task = tasks[index];
         return TaskCard(
+          key: ValueKey(task.id),
           task: task,
           now: now,
           urgentVisible: urgentVisible,

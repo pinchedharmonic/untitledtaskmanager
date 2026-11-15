@@ -1,0 +1,74 @@
+# Data and Sync Spec (Phase 1)
+
+This document records the first version of the task manager's data and sync behavior before changing the app code.
+
+## Decisions
+
+- **Online-only for the first synced version.** A create, edit, timer, complete, or delete action must be accepted by Supabase before the app updates its local screen state.
+- **Supabase is the source of truth.** On launch, reconnect, and app resume, the app reloads current records. While open, it listens for changes made by the other app instances.
+- **One personal account across devices.** Each Windows installation and the Android installation will sign in to the same Supabase account.
+- **Latest server-accepted change wins.** The database sets `updated_at`. Actions update only the fields they change, rather than replacing a whole record copied from a possibly stale screen.
+- **No queued offline edits in version one.** If a write fails, the screen keeps its last confirmed state and offers an error/retry path.
+- **Existing task behavior stays the same.** Priorities remain 1–5, higher priorities sort first, equal priorities keep their add order, completion remains undoable, and multiple different tasks may run timers at the same time.
+
+## Records and IDs
+
+IDs identify saved data records. Widgets, buttons, picker choices, and other screen-only details do not need IDs.
+
+### Task list
+
+- `id`: UUID primary key; stable when the list is renamed.
+- `owner_id`: the signed-in user's ID, used to restrict access.
+- `name`: editable list name.
+- `icon_key`: stable text key such as `karate`, `home`, or `work`; the UI maps it to an icon.
+- `created_at`, `updated_at`: database-generated UTC timestamps.
+
+### Task
+
+- `id`: UUID primary key; stable for the task's lifetime.
+- `owner_id`: the signed-in user's ID, used to restrict access.
+- `list_id`: the UUID of the task's list.
+- `title`: task text.
+- `priority`: integer from 1 through 5.
+- `sort_order`: preserves add order for tasks with equal priority.
+- `completed_at`: UTC timestamp when complete, otherwise null. Reopening a task clears it.
+- `elapsed_seconds`: accumulated whole seconds from completed timer runs.
+- `timer_started_at`: nullable UTC timestamp for the current run. Null means paused/not started.
+- `created_at`, `updated_at`: database-generated UTC timestamps.
+
+The initial account receives Work, Dojo, and Home once. They must not be re-created each time the app starts.
+
+## Timer behavior across devices
+
+- Starting a task sets `timer_started_at` using the database's UTC clock, then the app applies the returned saved record locally.
+- Pausing a task asks the database to add the time since `timer_started_at` to `elapsed_seconds`, then clears `timer_started_at`.
+- Completing a running task does the same timer stop, then sets `completed_at`. Uncompleting clears `completed_at` and leaves the timer paused.
+- Resuming starts a new run timestamp while preserving `elapsed_seconds`.
+- Other clients compute the displayed value from the same saved record: accumulated seconds plus the time since the shared start timestamp. The timer display can tick locally; the app writes only when a timer action happens, not every second.
+- To keep displays aligned despite small device-clock differences, clients should use a server-time sample as their clock anchor and refresh that anchor on app resume/reconnect. No device can show a remote change until it has network access.
+- If Play reaches a task that is already running, it must not replace or reset that run's timestamp.
+
+## Sync and conflict behavior
+
+- A user action is sent to Supabase first. Only after success does the app apply the returned record to its local screen state.
+- The other open clients receive database-change events and update their screens. The app also reloads on launch, reconnect, and resume so it can recover from missed events.
+- Timer transitions are narrow server-side actions (start, pause, complete), not stale full-record replacements. This reduces accidental overwrites when two devices are open.
+- If two changes still race on the same record, the latest change accepted by the database wins and all clients reload that accepted version.
+
+## Deletion behavior
+
+- Deleting a task removes that task after the user confirms through the existing completed-task X action.
+- Deleting a list keeps the current confirmation and deletes its tasks as well (cascade delete).
+- After either deletion, other clients reload the affected lists/tasks and remove them from view.
+
+## Weekly export plan
+
+- Supabase Free has no automatic database backups. Use the Supabase CLI to export the app schema and its data each week, and store the files outside this Git repository.
+- The CLI's default database dump is schema-only; a separate data dump is required. Supabase-managed schemas are excluded, so the restore procedure must account for re-creating/signing in the app account.
+- First perform and restore a manual export. Only then automate a weekly export, ideally with a second copy outside the NAS/PC that runs it.
+
+## Not in version one
+
+- Editing while offline or keeping an offline change queue.
+- Sharing lists with multiple user accounts.
+- Changing the visual design or adding Android-specific UI before the Windows sync flow works.
