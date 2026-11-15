@@ -648,46 +648,52 @@ class TaskListSidebar extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   children: [
                     for (final list in lists)
-                      Container(
-                        key: ValueKey(list.id),
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        decoration: BoxDecoration(
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Material(
+                          key: ValueKey(list.id),
                           color: list.id == selectedListId
                               ? const Color(0xFF9C8237)
                               : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          border: list.id == selectedListId
-                              ? Border.all(color: AppColors.gold, width: 2)
-                              : null,
-                        ),
-                        child: ListTile(
-                          selected: list.id == selectedListId,
-                          selectedTileColor: Colors.transparent,
-                          selectedColor: AppColors.background,
-                          leading: Icon(
-                            list.icon,
-                            color: list.id == selectedListId
-                                ? AppColors.background
-                                : AppColors.gold,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: list.id == selectedListId
+                                ? const BorderSide(
+                                    color: AppColors.gold,
+                                    width: 2,
+                                  )
+                                : BorderSide.none,
                           ),
-                          title: Text(
-                            list.name,
-                            style: TextStyle(
+                          clipBehavior: Clip.antiAlias,
+                          child: ListTile(
+                            selected: list.id == selectedListId,
+                            selectedTileColor: Colors.transparent,
+                            selectedColor: AppColors.background,
+                            leading: Icon(
+                              list.icon,
                               color: list.id == selectedListId
                                   ? AppColors.background
-                                  : AppColors.white,
-                              fontWeight: list.id == selectedListId
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
+                                  : AppColors.gold,
                             ),
+                            title: Text(
+                              list.name,
+                              style: TextStyle(
+                                color: list.id == selectedListId
+                                    ? AppColors.background
+                                    : AppColors.white,
+                                fontWeight: list.id == selectedListId
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            onTap: () {
+                              onListSelected(list.id);
+                              if (inDrawer) Navigator.pop(context);
+                            },
                           ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          onTap: () {
-                            onListSelected(list.id);
-                            if (inDrawer) Navigator.pop(context);
-                          },
                         ),
                       ),
                   ],
