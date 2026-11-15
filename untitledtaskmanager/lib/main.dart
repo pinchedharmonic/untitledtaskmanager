@@ -523,23 +523,27 @@ class TaskListContent extends StatelessWidget {
             Expanded(
               child: tasks.isEmpty
                   ? const EmptyTaskArea()
-                  : ListView.separated(
-                      itemCount: tasks.length,
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final task = tasks[index];
-                        return TaskCard(
-                          task: task,
-                          now: now,
-                          urgentVisible: urgentVisible,
-                          onToggleTimer: () => onToggleTimer(task),
-                          onToggleCompleted: () =>
-                              onToggleCompleted(task),
-                          onDelete: () => onDeleteTask(task),
-                        );
-                      },
-                    ),
+: ScrollConfiguration(
+  behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+  child: Padding(
+    padding: const EdgeInsets.only(right: 12),
+    child: ListView.separated(
+      itemCount: tasks.length,
+      separatorBuilder: (context, index) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final task = tasks[index];
+        return TaskCard(
+          task: task,
+          now: now,
+          urgentVisible: urgentVisible,
+          onToggleTimer: () => onToggleTimer(task),
+          onToggleCompleted: () => onToggleCompleted(task),
+          onDelete: () => onDeleteTask(task),
+        );
+      },
+    ),
+  ),
+),
             ),
           ],
         ),
@@ -659,34 +663,37 @@ class TaskCard extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  task.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: isCompleted ? AppColors.muted : AppColors.white,
-                    fontSize: 16,
-                    decoration:
-                        isCompleted ? TextDecoration.lineThrough : null,
-                  ),
-                ),
-                if (task.priority == 5 && !isCompleted)
-                  Opacity(
-                    opacity: urgentVisible ? 1 : 0,
-                    child: const Text(
-                      'URGENT',
-                      style: TextStyle(
-                        color: AppColors.urgent,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-              ],
+  child: Row(
+    children: [
+      Expanded(
+        child: Text(
+          task.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: isCompleted ? AppColors.muted : AppColors.white,
+            fontSize: 16,
+            decoration: isCompleted ? TextDecoration.lineThrough : null,
+          ),
+        ),
+      ),
+      if (task.priority == 5 && !isCompleted)
+        Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Opacity(
+            opacity: urgentVisible ? 1 : 0,
+            child: const Text(
+              'URGENT',
+              style: TextStyle(
+                color: AppColors.urgent,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
+        ),
+    ],
+  ),
+),
           const SizedBox(width: 8),
 
           // Fixed-width control slots keep the row from shifting.
