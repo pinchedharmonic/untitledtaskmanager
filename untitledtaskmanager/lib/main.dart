@@ -1734,6 +1734,9 @@ class TaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isCompleted = task.isCompleted;
+    final useCompactLayout =
+        Theme.of(context).platform == TargetPlatform.android ||
+        MediaQuery.sizeOf(context).width < 600;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1742,109 +1745,213 @@ class TaskCard extends StatelessWidget {
         border: Border.all(color: priorityColor(task.priority), width: 2),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Row(
-        children: [
-          Tooltip(
-            message: 'Drag to reorder within this priority',
-            child: ReorderableDragStartListener(
-              index: reorderIndex,
-              child: const SizedBox(
-                width: 30,
-                height: 40,
-                child: Icon(Icons.drag_indicator, color: AppColors.muted),
-              ),
+      child: useCompactLayout
+          ? _buildCompactLayout(isCompleted)
+          : _buildWideLayout(isCompleted),
+    );
+  }
+
+  Widget _buildWideLayout(bool isCompleted) {
+    return Row(
+      children: [
+        Tooltip(
+          message: 'Drag to reorder within this priority',
+          child: ReorderableDragStartListener(
+            index: reorderIndex,
+            child: const SizedBox(
+              width: 30,
+              height: 40,
+              child: Icon(Icons.drag_indicator, color: AppColors.muted),
             ),
           ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    task.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: isCompleted ? AppColors.muted : AppColors.white,
-                      fontSize: 16,
-                      decoration: isCompleted
-                          ? TextDecoration.lineThrough
-                          : null,
-                    ),
-                  ),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: _buildTaskTitle(isCompleted, maxLines: 1)),
+              if (task.priority == 5 && !isCompleted)
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: _buildUrgentLabel(),
                 ),
-                if (task.priority == 5 && !isCompleted)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: Opacity(
-                      opacity: urgentVisible ? 1 : 0,
-                      child: const Text(
-                        'URGENT',
-                        style: TextStyle(
-                          color: AppColors.urgent,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: 78,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              _formatDuration(task.elapsedAt(now)),
+              style: const TextStyle(color: AppColors.muted),
             ),
           ),
-          const SizedBox(width: 8),
+        ),
+        _buildWideControls(isCompleted),
+      ],
+    );
+  }
 
-          // Fixed-width control slots keep the row from shifting.
-          SizedBox(
-            width: 78,
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                _formatDuration(task.elapsedAt(now)),
-                style: const TextStyle(color: AppColors.muted),
+  Widget _buildCompactLayout(bool isCompleted) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Tooltip(
+              message: 'Drag to reorder within this priority',
+              child: ReorderableDragStartListener(
+                index: reorderIndex,
+                child: const SizedBox(
+                  width: 30,
+                  height: 36,
+                  child: Icon(Icons.drag_indicator, color: AppColors.muted),
+                ),
               ),
             ),
-          ),
-          _ControlSlot(
-            child: IconButton(
-              tooltip: task.isRunning ? 'Pause timer' : 'Start or resume timer',
-              onPressed: isCompleted ? null : onToggleTimer,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-              icon: Icon(
-                task.isRunning ? Icons.pause : Icons.play_arrow,
-                color: isCompleted ? AppColors.muted : AppColors.gold,
+            const SizedBox(width: 4),
+            Expanded(child: _buildTaskTitle(isCompleted)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (task.priority == 5 && !isCompleted) _buildUrgentLabel(),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 72,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  _formatDuration(task.elapsedAt(now)),
+                  style: const TextStyle(color: AppColors.muted, fontSize: 12),
+                ),
               ),
             ),
-          ),
-          _ControlSlot(
-            child: IconButton(
-              tooltip: isCompleted ? 'Mark task incomplete' : 'Complete task',
-              onPressed: onToggleCompleted,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints.tightFor(width: 40, height: 40),
-              icon: Icon(
-                isCompleted ? Icons.check_box : Icons.check_box_outline_blank,
-                color: AppColors.gold,
-              ),
-            ),
-          ),
+            const SizedBox(width: 4),
+            _buildCompactControls(isCompleted),
+          ],
+        ),
+      ],
+    );
+  }
 
-          // Keep this slot even while incomplete, so the X doesn't move controls.
-          _ControlSlot(
-            child: isCompleted
-                ? IconButton(
-                    tooltip: 'Remove task',
-                    onPressed: onDelete,
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 40,
-                      height: 40,
-                    ),
-                    icon: const Icon(Icons.close, color: AppColors.urgent),
-                  )
-                : const SizedBox(width: 40, height: 40),
-          ),
-        ],
+  Widget _buildTaskTitle(bool isCompleted, {int? maxLines}) {
+    return Text(
+      task.title,
+      maxLines: maxLines,
+      overflow: maxLines == null ? null : TextOverflow.ellipsis,
+      style: TextStyle(
+        color: isCompleted ? AppColors.muted : AppColors.white,
+        fontSize: 16,
+        decoration: isCompleted ? TextDecoration.lineThrough : null,
       ),
+    );
+  }
+
+  Widget _buildUrgentLabel() {
+    return Opacity(
+      opacity: urgentVisible ? 1 : 0,
+      child: const Text(
+        'URGENT',
+        style: TextStyle(color: AppColors.urgent, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildWideControls(bool isCompleted) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ControlSlot(
+          child: IconButton(
+            tooltip: task.isRunning ? 'Pause timer' : 'Start or resume timer',
+            onPressed: isCompleted ? null : onToggleTimer,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            icon: Icon(
+              task.isRunning ? Icons.pause : Icons.play_arrow,
+              color: isCompleted ? AppColors.muted : AppColors.gold,
+            ),
+          ),
+        ),
+        _ControlSlot(
+          child: IconButton(
+            tooltip: isCompleted ? 'Mark task incomplete' : 'Complete task',
+            onPressed: onToggleCompleted,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+            icon: Icon(
+              isCompleted ? Icons.check_box : Icons.check_box_outline_blank,
+              color: AppColors.gold,
+            ),
+          ),
+        ),
+        _ControlSlot(
+          child: isCompleted
+              ? IconButton(
+                  tooltip: 'Remove task',
+                  onPressed: onDelete,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 40,
+                    height: 40,
+                  ),
+                  icon: const Icon(Icons.close, color: AppColors.urgent),
+                )
+              : const SizedBox(width: 40, height: 40),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompactControls(bool isCompleted) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _CompactControlSlot(
+          child: IconButton(
+            tooltip: task.isRunning ? 'Pause timer' : 'Start or resume timer',
+            onPressed: isCompleted ? null : onToggleTimer,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+            icon: Icon(
+              task.isRunning ? Icons.pause : Icons.play_arrow,
+              color: isCompleted ? AppColors.muted : AppColors.gold,
+            ),
+          ),
+        ),
+        _CompactControlSlot(
+          child: IconButton(
+            tooltip: isCompleted ? 'Mark task incomplete' : 'Complete task',
+            onPressed: onToggleCompleted,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints.tightFor(width: 36, height: 36),
+            icon: Icon(
+              isCompleted ? Icons.check_box : Icons.check_box_outline_blank,
+              color: AppColors.gold,
+            ),
+          ),
+        ),
+        _CompactControlSlot(
+          child: isCompleted
+              ? IconButton(
+                  tooltip: 'Remove task',
+                  onPressed: onDelete,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 36,
+                    height: 36,
+                  ),
+                  icon: const Icon(Icons.close, color: AppColors.urgent),
+                )
+              : const SizedBox(width: 36, height: 36),
+        ),
+      ],
     );
   }
 }
@@ -1857,6 +1964,17 @@ class _ControlSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(width: 40, height: 40, child: Center(child: child));
+  }
+}
+
+class _CompactControlSlot extends StatelessWidget {
+  const _CompactControlSlot({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(width: 36, height: 36, child: Center(child: child));
   }
 }
 
