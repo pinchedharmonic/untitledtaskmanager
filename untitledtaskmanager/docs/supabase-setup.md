@@ -15,6 +15,17 @@ password, `service_role` key, or secret key.
 - `lib/data/supabase_app_config.dart` reads credentials from the ignored local
   settings file passed at app launch.
 
+## Set up each development computer
+
+The repository includes `supabase.local.example.json` in its top-level folder.
+On each computer, copy that file to `supabase.local.json` in the same folder,
+then fill in the Project URL and publishable key from the Supabase Dashboard.
+The VS Code launch profiles already read `supabase.local.json`.
+
+The real `supabase.local.json` stays local and is ignored by Git. The example
+file has blank values and is safe to keep in GitHub. Do not put a database
+password or Supabase secret key in either file.
+
 ## Apply the ordering update to your existing project
 
 1. Sign in to the Supabase Dashboard and open the project whose URL matches the
@@ -37,11 +48,10 @@ existing setup.
 
 ## Start the app
 
-The local `supabase.local.json` already contains the Project URL and publishable
-key and is ignored by Git. In VS Code, select **Task Manager (Windows)** in the
-Run and Debug profile picker, then start it. The first time, choose **Create a
-new account**. If Supabase asks you to confirm your email, use the email link,
-then return to the app and sign in.
+After creating `supabase.local.json`, in VS Code select **Task Manager
+(Windows)** in the Run and Debug profile picker, then start it. The first time,
+choose **Create a new account**. If Supabase asks you to confirm your email,
+use the email link, then return to the app and sign in.
 
 For a first two-client sync check, keep the Windows app open and launch
 `Task Manager (Chrome sync test)` from the same VS Code profile picker. Sign
