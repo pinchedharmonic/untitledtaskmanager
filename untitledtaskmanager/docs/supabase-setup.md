@@ -8,27 +8,32 @@ password, `service_role` key, or secret key.
 
 - `supabase/migrations/202611150001_initial_task_sync.sql` creates the tables,
   owner-only row security, server-clock functions, and Realtime setup.
+- `supabase/migrations/202611150002_manual_ordering.sql` changes ordering to
+  support synchronized drag-and-drop while retaining existing rows.
 - `lib/data/supabase_task_repository.dart` writes each action to the cloud and
   returns the server's accepted row.
 - `lib/data/supabase_app_config.dart` reads credentials from the ignored local
   settings file passed at app launch.
 
-## After creating your Supabase project
+## Apply the ordering update to your existing project
 
 1. Sign in to the Supabase Dashboard and open the project whose URL matches the
    URL in `supabase.local.json`.
-2. Select **SQL Editor** in the project navigation, then choose **New query**.
-3. In VS Code, open
-   `supabase/migrations/202611150001_initial_task_sync.sql`, select all, and
-   copy it.
-4. Paste the SQL into the new Supabase query and click **Run**.
-5. Wait for a success message. In the project's **Table Editor**, confirm that
-   `task_lists` and `tasks` exist. The script enables row-level security and
-   adds owner-only policies, server-side timer functions, and Realtime publication.
+2. Close the Windows and Chrome app windows so they are not changing data during
+   the order update.
+3. Select **SQL Editor** in the project navigation, then choose **New query**.
+4. In VS Code, open
+   `supabase/migrations/202611150002_manual_ordering.sql`, select all, and copy it.
+5. Paste the SQL into the new Supabase query and click **Run**. Supabase may
+   show its generic destructive-operations warning because the update removes
+   the old automatic-ordering rules. This migration keeps your list/task rows
+   and IDs, and sets their initial positions alphabetically (tasks alphabetically
+   within each priority).
+6. Wait for a success message before reopening the apps.
 
-The migration creates the schema and functions; the app creates Work, Dojo, and
-Home lists the first time you sign in. Running the migration does not import the
-temporary sample tasks currently shown by demo mode.
+The first migration, `202611150001_initial_task_sync.sql`, has already been
+applied to your project. Do not rerun it; this second migration updates that
+existing setup.
 
 ## Start the app
 
@@ -46,11 +51,11 @@ smoke test.
 
 ## What the migration sets up
 
-- Stable UUIDs for lists and tasks, with database-generated add order.
+- Stable UUIDs for lists and tasks, with synchronized drag-and-drop order.
 - Per-account rows protected by row-level security.
 - Server-clock start, pause, and completion actions for shared timers.
 - Realtime notifications so another signed-in app instance can refresh rows.
-- Initial Work, Dojo, and Home lists, created once for a new account.
+- Initial Dojo, Home, and Work lists, created once for a new account.
 
 The client uses the public publishable key. Supabase's row-level security is
 what restricts access to the signed-in account.

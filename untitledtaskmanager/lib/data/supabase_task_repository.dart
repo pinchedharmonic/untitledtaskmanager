@@ -77,7 +77,7 @@ class SupabaseTaskRepository {
     final rows = await _client
         .from('task_lists')
         .select('id, name, icon_key, sort_order, created_at, updated_at')
-        .order('sort_order');
+        .order('sort_order', ascending: true);
     return List<Map<String, dynamic>>.from(rows);
   }
 
@@ -88,7 +88,7 @@ class SupabaseTaskRepository {
           'id, list_id, title, priority, sort_order, completed_at, '
           'elapsed_seconds, timer_started_at, created_at, updated_at',
         )
-        .order('sort_order');
+        .order('sort_order', ascending: true);
     return List<Map<String, dynamic>>.from(rows);
   }
 
@@ -97,11 +97,10 @@ class SupabaseTaskRepository {
     required String name,
     required String iconKey,
   }) async {
-    final row = await _client
-        .from('task_lists')
-        .insert({'id': id, 'name': name, 'icon_key': iconKey})
-        .select()
-        .single();
+    final row = await _client.rpc(
+      'create_task_list',
+      params: {'p_id': id, 'p_name': name, 'p_icon_key': iconKey},
+    );
     return Map<String, dynamic>.from(row);
   }
 
@@ -110,13 +109,15 @@ class SupabaseTaskRepository {
     required String name,
     required String iconKey,
   }) async {
-    final row = await _client
-        .from('task_lists')
-        .update({'name': name, 'icon_key': iconKey})
-        .eq('id', id)
-        .select()
-        .single();
+    final row = await _client.rpc(
+      'update_task_list',
+      params: {'p_id': id, 'p_name': name, 'p_icon_key': iconKey},
+    );
     return Map<String, dynamic>.from(row);
+  }
+
+  Future<void> reorderLists(List<String> listIds) async {
+    await _client.rpc('reorder_task_lists', params: {'p_list_ids': listIds});
   }
 
   Future<void> deleteList(String id) async {
@@ -129,17 +130,31 @@ class SupabaseTaskRepository {
     required String title,
     required int priority,
   }) async {
-    final row = await _client
-        .from('tasks')
-        .insert({
-          'id': id,
-          'list_id': listId,
-          'title': title,
-          'priority': priority,
-        })
-        .select()
-        .single();
+    final row = await _client.rpc(
+      'create_task',
+      params: {
+        'p_task_id': id,
+        'p_list_id': listId,
+        'p_title': title,
+        'p_priority': priority,
+      },
+    );
     return Map<String, dynamic>.from(row);
+  }
+
+  Future<void> reorderTasks({
+    required String listId,
+    required int priority,
+    required List<String> taskIds,
+  }) async {
+    await _client.rpc(
+      'reorder_tasks',
+      params: {
+        'p_list_id': listId,
+        'p_priority': priority,
+        'p_task_ids': taskIds,
+      },
+    );
   }
 
   Future<Map<String, dynamic>> updateTask({
