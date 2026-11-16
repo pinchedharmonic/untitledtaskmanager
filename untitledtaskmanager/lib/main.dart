@@ -1799,7 +1799,7 @@ class TaskCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Tooltip(
               message: 'Drag to reorder within this priority',
