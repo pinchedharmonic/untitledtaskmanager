@@ -5,7 +5,7 @@ create table if not exists public.task_lists (
   name text not null check (length(trim(name)) between 1 and 80),
   icon_key text not null default 'general',
   sort_order bigint generated always as identity,
-  created_at timestamptz not null default now(),Q
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (id, owner_id),
   unique (owner_id, sort_order)
